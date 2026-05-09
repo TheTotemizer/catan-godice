@@ -329,14 +329,13 @@
 <!-- ============================================================ -->
 <!-- SCRIPTS                                                       -->
 <!-- ============================================================ -->
-<!-- godice.js: try a local copy first (drop-in if you've vendored it),
-     then jsDelivr, then statically.io as a last fallback. The app still
-     works without it (manual entry mode), but pairing real dice needs it. -->
+<!-- godice.js: try a local copy first, then a chain of CDN fallbacks.
+     The app still works without it (manual entry mode), but pairing real
+     dice needs it. -->
 <script>
 (function(){
   var sources = [
-    'godice.js', // local vendored copy (preferred — drop the file from
-                 // https://github.com/ParticulaCode/GoDiceJavaScriptAPI next to index.html)
+    'godice.js',
     'https://cdn.jsdelivr.net/gh/ParticulaCode/GoDiceJavaScriptAPI@main/godice.js',
     'https://cdn.statically.io/gh/ParticulaCode/GoDiceJavaScriptAPI/main/godice.js',
     'https://rawcdn.githack.com/ParticulaCode/GoDiceJavaScriptAPI/main/godice.js'
@@ -351,7 +350,17 @@
     s.src = sources[i];
     s.async = false;
     s.onload  = function(){
-      window.__GODICE_LOAD_FAILED__ = false;
+      // The upstream library is "class GoDice {}" — a top-level class
+      // declaration is a LEXICAL binding and does NOT attach to window
+      // (modern JS / strict mode behavior). Inject a tiny script in the
+      // same global script context that mirrors the binding to window.
+      try {
+        var fix = document.createElement('script');
+        fix.text = 'try{if(typeof GoDice==="function"&&!window.GoDice){window.GoDice=GoDice;}}catch(e){}';
+        document.head.appendChild(fix);
+        fix.remove();
+      } catch (e) {}
+      window.__GODICE_LOAD_FAILED__ = (typeof window.GoDice !== 'function');
       window.dispatchEvent(new Event('godice-loaded'));
     };
     s.onerror = function(){ s.remove(); tryNext(i + 1); };
