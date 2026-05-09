@@ -1,15 +1,21 @@
-/* Catan Companion — minimal service worker
- * Caches the app shell so it can launch offline once visited.
- * Bluetooth pairing of course requires being online (browser permission UI),
- * but everything else (manual mode, score tracking, stats) works offline.
+/* Catan Companion — service worker
+ *
+ * NETWORK-FIRST strategy. Users always get the latest version on reload
+ * (so bug fixes deploy quickly), with cache fallback only when offline.
+ * The previous version used cache-first, which trapped users on broken
+ * builds across deployments.
+ *
+ * Bump CACHE_VERSION whenever you ship — old caches get evicted on activate.
  */
-const CACHE = 'catan-companion-v1';
+const CACHE_VERSION = 'v3-2026-05';
+const CACHE = 'catan-companion-' + CACHE_VERSION;
 const ASSETS = [
   './',
   'index.html',
   'styles.css',
   'app.js',
   'godice-adapter.js',
+  'godice.js',
   'manifest.webmanifest',
   'icon-192.png',
   'icon-512.png',
@@ -24,22 +30,18 @@ self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys().then(keys =>
       Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
-    )
+    ).then(() => self.clients.claim())
   );
-  self.clients.claim();
 });
 
 self.addEventListener('fetch', e => {
-  // Network-first for jsDelivr (so we get fresh godice.js if available),
-  // cache-first for our own assets.
   const url = new URL(e.request.url);
-  if (url.origin === self.location.origin) {
-    e.respondWith(
-      caches.match(e.request).then(c => c || fetch(e.request).then(r => {
-        const copy = r.clone();
-        caches.open(CACHE).then(cache => cache.put(e.request, copy)).catch(() => {});
-        return r;
-      }).catch(() => caches.match('./')))
-    );
-  }
+  if (url.origin !== self.location.origin) return; // never intercept CDN URLs
+  e.respondWith(
+    fetch(e.request).then(r => {
+      const copy = r.clone();
+      caches.open(CACHE).then(c => c.put(e.request, copy)).catch(() => {});
+      return r;
+    }).catch(() => caches.match(e.request).then(c => c || caches.match('./')))
+  );
 });
