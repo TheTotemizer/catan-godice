@@ -1154,6 +1154,7 @@
       ['navigator.bluetooth?',   d.hasNavigatorBluetooth ? 'yes' : 'NO (browser does not expose the API)'],
       ['Web Bluetooth usable?',  d.bluetoothApiUsable ? 'yes' : 'NO'],
       ['GoDice library loaded?', d.goDiceLibraryLoaded ? 'yes' : 'NO (CDN blocked or load failed)'],
+      ['Service worker?',        ('serviceWorker' in navigator) ? (navigator.serviceWorker.controller ? 'yes (controlling page — may serve cached files)' : 'registered but not controlling') : 'no'],
       ['User agent',             d.userAgent],
     ];
     const lines = rows.map(r =>
@@ -1167,20 +1168,83 @@
     host.id = 'diagnostics-modal';
     host.className = 'overlay';
     host.innerHTML = `
-      <div class="drawer" style="max-width:560px">
+      <div class="drawer" style="max-width:620px">
         <header><h2>Diagnostics</h2>
           <button class="btn ghost icon" data-action="close-diag">✕</button></header>
         <div class="drawer-body">
-          <p class="muted">Share this with whoever's helping you debug.</p>
           <table style="width:100%;border-collapse:collapse">${lines}</table>
-          <p class="muted small" style="margin-top:1rem">If <strong>Web Bluetooth usable</strong> is "no" but you're on Chrome/Edge over HTTPS with system Bluetooth on, try: <em>chrome://flags</em> → search "Web Bluetooth" → ensure not disabled. Also grant Location permission to the browser on Android.</p>
+
+          <h3 style="margin-top:1rem">Live load tests</h3>
+          <p class="muted small">Tap to fetch each godice.js URL and check the response.</p>
+          <button class="btn primary" data-action="run-live-tests">Run live tests</button>
+          <pre id="live-test-results" class="mono" style="background:var(--c-bg);padding:.5rem;border-radius:6px;font-size:.78rem;white-space:pre-wrap;word-break:break-all;max-height:240px;overflow:auto;margin-top:.5rem"></pre>
+
+          <h3 style="margin-top:1rem">Reset / nuke caches</h3>
+          <p class="muted small">If a stale service worker is serving you old broken files, hit this. The page reloads after.</p>
+          <button class="btn warn" data-action="nuke-sw">Unregister service worker + clear caches</button>
         </div>
       </div>
     `;
     document.body.appendChild(host);
-    host.addEventListener('click', (e) => {
-      if (e.target === host || e.target.closest('[data-action="close-diag"]')) host.remove();
+    host.addEventListener('click', async (e) => {
+      if (e.target === host || e.target.closest('[data-action="close-diag"]')) {
+        host.remove();
+        return;
+      }
+      const action = e.target.closest('[data-action]')?.dataset?.action;
+      if (action === 'run-live-tests') {
+        await runLiveLoadTests();
+      } else if (action === 'nuke-sw') {
+        await nukeServiceWorker();
+      }
     });
+  }
+
+  async function runLiveLoadTests() {
+    const out = $('#live-test-results');
+    if (!out) return;
+    const urls = [
+      'godice.js',
+      'https://cdn.jsdelivr.net/gh/ParticulaCode/GoDiceJavaScriptAPI@main/godice.js',
+      'https://cdn.statically.io/gh/ParticulaCode/GoDiceJavaScriptAPI/main/godice.js',
+      'https://rawcdn.githack.com/ParticulaCode/GoDiceJavaScriptAPI/main/godice.js',
+    ];
+    out.textContent = 'Running...\n';
+    for (const u of urls) {
+      try {
+        const t0 = performance.now();
+        const r = await fetch(u, { cache: 'no-store' });
+        const ms = Math.round(performance.now() - t0);
+        if (!r.ok) { out.textContent += `\n[${r.status}]  ${u}  (${ms}ms)\n`; continue; }
+        const text = await r.text();
+        const looksLikeJs = /class\s+GoDice|function\s+GoDice|GoDice\.prototype/.test(text);
+        const firstLine = (text.split('\n')[0] || '').slice(0, 80);
+        out.textContent +=
+          `\n[OK]  ${u}\n` +
+          `      bytes: ${text.length}, ${ms}ms, looks-like-godice: ${looksLikeJs ? 'YES' : 'NO'}\n` +
+          `      first line: ${firstLine}\n`;
+      } catch (err) {
+        out.textContent += `\n[ERR] ${u}\n      ${(err && err.message) || err}\n`;
+      }
+    }
+    out.textContent += `\nwindow.GoDice currently: ${typeof window.GoDice}\n`;
+  }
+
+  async function nukeServiceWorker() {
+    try {
+      if ('serviceWorker' in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        for (const r of regs) await r.unregister();
+      }
+      if (window.caches && caches.keys) {
+        const ks = await caches.keys();
+        for (const k of ks) await caches.delete(k);
+      }
+      alert('Service worker unregistered and caches cleared. The page will reload.');
+      location.reload();
+    } catch (e) {
+      alert('Failed: ' + (e.message || e));
+    }
   }
 
   /* ============================================================ *
