@@ -111,7 +111,13 @@
   const dice = new DiceManager();
 
   function isBluetoothEnv() {
-    return DiceManager.isBluetoothSupported() && !window.__GODICE_LOAD_FAILED__;
+    // Browser-level support only — does NOT require the GoDice library
+    // to be loaded. (Library failure is surfaced separately so users get
+    // an accurate diagnosis instead of a generic "not supported".)
+    return DiceManager.isBluetoothSupported();
+  }
+  function isLibraryReady() {
+    return DiceManager.isLibraryLoaded() && !window.__GODICE_LOAD_FAILED__;
   }
 
   // Roll-event wiring — single point of entry for *all* roll outcomes
@@ -175,11 +181,35 @@
     } else {
       card.classList.add('hidden');
     }
-    if (!isBluetoothEnv()) {
-      $('#bt-warn').innerHTML =
-        `<strong>Note:</strong> This browser doesn't support Web Bluetooth. ` +
-        `You can still use the companion in <em>manual entry</em> mode (tap dice to enter rolls).`;
+    renderBluetoothBanner();
+  }
+
+  function renderBluetoothBanner() {
+    const el = $('#bt-warn');
+    if (!el) return;
+    const diag = DiceManager.diagnostics();
+    let html;
+    if (diag.bluetoothApiUsable && isLibraryReady()) {
+      html = `<strong>Web Bluetooth ready.</strong> Tap "Pair a die" in setup and your browser will show the chooser.`;
+    } else if (!diag.secureContext) {
+      html = `<strong>Insecure context.</strong> Web Bluetooth needs HTTPS or localhost. ` +
+             `You're on <code>${diag.protocol}//${diag.host}</code>.`;
+    } else if (!diag.hasNavigatorBluetooth) {
+      html = `<strong>This browser doesn't expose Web Bluetooth.</strong> ` +
+             `On Android use Chrome or Edge (Firefox doesn't support it; Samsung Internet usually does over HTTPS). ` +
+             `On iPad/iPhone Safari, Web Bluetooth isn't available — use manual entry. ` +
+             `Make sure system Bluetooth is on and the browser has Location permission.`;
+    } else if (!diag.bluetoothApiUsable) {
+      html = `<strong>Bluetooth API present but unusable.</strong> ` +
+             `Try enabling Bluetooth at the OS level and granting Location permission to this browser.`;
+    } else if (!isLibraryReady()) {
+      html = `<strong>Web Bluetooth is supported in your browser, but the GoDice helper library failed to load from the CDN.</strong> ` +
+             `This usually means a network filter, ad blocker, or VPN is blocking jsdelivr.net. ` +
+             `Try disabling extensions/blockers, or download <code>godice.js</code> from the GoDice GitHub repo and host it next to <code>index.html</code>.`;
+    } else {
+      html = `<strong>Web Bluetooth not available.</strong> Use manual entry to play.`;
     }
+    el.innerHTML = html + ` <a href="#" data-action="show-diagnostics" style="color:var(--c-primary)">Show diagnostics</a>`;
   }
 
   /* ============================================================ *
@@ -852,6 +882,10 @@
         ensureCollectionsForPlayers();
         showScreen('setup');
         break;
+      case 'show-diagnostics':
+        ev && ev.preventDefault && ev.preventDefault();
+        showDiagnosticsDialog();
+        break;
       case 'resume':
         showScreen('game');
         break;
@@ -1111,6 +1145,44 @@
     setTimeout(() => el.remove(), 2900);
   }
 
+  function showDiagnosticsDialog() {
+    const d = DiceManager.diagnostics();
+    const rows = [
+      ['Page protocol',          d.protocol],
+      ['Host',                   d.host],
+      ['Secure context?',        d.secureContext ? 'yes' : 'NO (Bluetooth requires HTTPS or localhost)'],
+      ['navigator.bluetooth?',   d.hasNavigatorBluetooth ? 'yes' : 'NO (browser does not expose the API)'],
+      ['Web Bluetooth usable?',  d.bluetoothApiUsable ? 'yes' : 'NO'],
+      ['GoDice library loaded?', d.goDiceLibraryLoaded ? 'yes' : 'NO (CDN blocked or load failed)'],
+      ['User agent',             d.userAgent],
+    ];
+    const lines = rows.map(r =>
+      `<tr><th style="text-align:left;padding:.25rem .5rem;color:var(--c-ink-dim);font-weight:500">${r[0]}</th>` +
+      `<td style="padding:.25rem .5rem;font-family:var(--font-mono);font-size:.85rem;word-break:break-all">${escapeHtml(String(r[1]))}</td></tr>`
+    ).join('');
+
+    let host = $('#diagnostics-modal');
+    if (host) host.remove();
+    host = document.createElement('div');
+    host.id = 'diagnostics-modal';
+    host.className = 'overlay';
+    host.innerHTML = `
+      <div class="drawer" style="max-width:560px">
+        <header><h2>Diagnostics</h2>
+          <button class="btn ghost icon" data-action="close-diag">✕</button></header>
+        <div class="drawer-body">
+          <p class="muted">Share this with whoever's helping you debug.</p>
+          <table style="width:100%;border-collapse:collapse">${lines}</table>
+          <p class="muted small" style="margin-top:1rem">If <strong>Web Bluetooth usable</strong> is "no" but you're on Chrome/Edge over HTTPS with system Bluetooth on, try: <em>chrome://flags</em> → search "Web Bluetooth" → ensure not disabled. Also grant Location permission to the browser on Android.</p>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(host);
+    host.addEventListener('click', (e) => {
+      if (e.target === host || e.target.closest('[data-action="close-diag"]')) host.remove();
+    });
+  }
+
   /* ============================================================ *
    * BOOTSTRAP
    * ============================================================ */
@@ -1118,10 +1190,9 @@
   function boot() {
     const saved = loadSaved();
     if (saved && saved.phase === 'game') {
-      // Hydrate. Bluetooth pairings DON'T survive a page refresh
-      // (Web Bluetooth limitation), so any configured dice that aren't
-      // in our active DiceManager get re-registered as manual dice.
-      // The user can still re-pair the real dice from Settings later.
+      // Hydrate. Bluetooth pairings DON'T survive a page refresh, so
+      // any configured dice missing from DiceManager get re-registered
+      // as manual dice. The user can re-pair real dice from Settings.
       Object.assign(state, saved);
       state.currentTurn = state.currentTurn || { rolled:false, sumPending:null, dieValues:{}, robberPending:false, sbpPending:false };
       ensureCollectionsForPlayers();
@@ -1142,6 +1213,10 @@
     }
     showScreen(state.phase || 'welcome');
     renderWelcome();
+    // Re-render the BT banner after async script loading settles —
+    // GoDice library may finish loading after our boot() runs.
+    setTimeout(renderBluetoothBanner, 100);
+    setTimeout(renderBluetoothBanner, 1500);
   }
   boot();
 

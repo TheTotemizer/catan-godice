@@ -329,9 +329,37 @@
 <!-- ============================================================ -->
 <!-- SCRIPTS                                                       -->
 <!-- ============================================================ -->
-<!-- godice.js loaded from jsDelivr's GitHub mirror; falls back gracefully if blocked. -->
-<script src="https://cdn.jsdelivr.net/gh/ParticulaCode/GoDiceJavaScriptAPI@main/godice.js"
-        onerror="window.__GODICE_LOAD_FAILED__=true"></script>
+<!-- godice.js: try a local copy first (drop-in if you've vendored it),
+     then jsDelivr, then statically.io as a last fallback. The app still
+     works without it (manual entry mode), but pairing real dice needs it. -->
+<script>
+(function(){
+  var sources = [
+    'godice.js', // local vendored copy (preferred — drop the file from
+                 // https://github.com/ParticulaCode/GoDiceJavaScriptAPI next to index.html)
+    'https://cdn.jsdelivr.net/gh/ParticulaCode/GoDiceJavaScriptAPI@main/godice.js',
+    'https://cdn.statically.io/gh/ParticulaCode/GoDiceJavaScriptAPI/main/godice.js',
+    'https://rawcdn.githack.com/ParticulaCode/GoDiceJavaScriptAPI/main/godice.js'
+  ];
+  function tryNext(i) {
+    if (i >= sources.length) {
+      window.__GODICE_LOAD_FAILED__ = true;
+      window.dispatchEvent(new Event('godice-load-failed'));
+      return;
+    }
+    var s = document.createElement('script');
+    s.src = sources[i];
+    s.async = false;
+    s.onload  = function(){
+      window.__GODICE_LOAD_FAILED__ = false;
+      window.dispatchEvent(new Event('godice-loaded'));
+    };
+    s.onerror = function(){ s.remove(); tryNext(i + 1); };
+    document.head.appendChild(s);
+  }
+  tryNext(0);
+})();
+</script>
 <script src="godice-adapter.js"></script>
 <script src="app.js"></script>
 <script>
