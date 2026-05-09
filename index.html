@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <meta name="theme-color" content="#0e1a2b" />
+  <title>Catan Companion</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
+</head>
+<body>
+
+<!-- ============================================================ -->
+<!-- WELCOME SCREEN                                                -->
+<!-- ============================================================ -->
+<section class="screen" data-screen="welcome">
+  <div class="welcome-shell">
+    <div class="brand">
+      <div class="brand-mark">
+        <svg viewBox="0 0 100 100" width="64" height="64" aria-hidden="true">
+          <polygon points="50,5 95,28 95,72 50,95 5,72 5,28" fill="var(--c-wheat)" stroke="var(--c-ink)" stroke-width="3"/>
+          <polygon points="50,20 80,35 80,65 50,80 20,65 20,35" fill="var(--c-clay)" opacity="0.5"/>
+        </svg>
+      </div>
+      <div>
+        <h1>Catan Companion</h1>
+        <p class="muted">Smart-dice-driven helper for Settlers of Catan</p>
+      </div>
+    </div>
+
+    <div id="resume-card" class="card hidden">
+      <h2>Resume game in progress</h2>
+      <p class="muted" id="resume-info"></p>
+      <div class="row">
+        <button class="btn primary" data-action="resume">Resume</button>
+        <button class="btn ghost" data-action="discard-saved">Start fresh</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>New game</h2>
+      <p class="muted">Set up players, pair your GoDice, and play. The app tracks rolls, the robber, turn timers, and player aids — your physical board does the rest.</p>
+      <button class="btn primary big" data-action="new-game">Start setup</button>
+    </div>
+
+    <div class="card subtle" id="bt-warn">
+      <strong>Heads up:</strong> Live dice integration uses Web Bluetooth. It works in <em>Chrome / Edge on Android, Windows, Mac, and Linux</em>. iPad / iPhone Safari is not supported — you can still play with the manual-entry fallback.
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- SETUP SCREEN                                                  -->
+<!-- ============================================================ -->
+<section class="screen hidden" data-screen="setup">
+  <header class="topbar">
+    <button class="btn ghost" data-action="back-to-welcome">&larr; Back</button>
+    <h2 id="setup-title">Game setup</h2>
+    <div class="topbar-right">
+      <span class="step-indicator"><span data-step-dot="1" class="active"></span><span data-step-dot="2"></span><span data-step-dot="3"></span></span>
+    </div>
+  </header>
+
+  <div class="setup-body">
+
+    <!-- Step 1: Players -->
+    <div class="setup-step" data-step="1">
+      <h3>Who's playing?</h3>
+      <p class="muted">3–6 players. Drag to reorder turn order if needed (just rename them in turn order for now).</p>
+      <div id="player-list" class="player-edit-list"></div>
+      <div class="row">
+        <button class="btn" data-action="add-player">+ Add player</button>
+        <span class="muted" id="player-count-hint"></span>
+      </div>
+
+      <fieldset class="rule-toggles">
+        <legend>Variants & house rules</legend>
+        <label><input type="checkbox" data-rule="sixPlayer" /> 5–6 player expansion (Special Build Phase)</label>
+        <label><input type="checkbox" data-rule="rerollFirstSeven" /> Re-roll first 7 of the game (common house rule)</label>
+        <label><input type="checkbox" data-rule="ledPerPlayer" checked /> Light dice in active player's color when their turn starts</label>
+        <label><input type="checkbox" data-rule="autoStartTimer" checked /> Auto-start turn timer on first roll</label>
+      </fieldset>
+
+      <div class="row right">
+        <button class="btn primary" data-action="step-next">Next: dice &rarr;</button>
+      </div>
+    </div>
+
+    <!-- Step 2: Dice -->
+    <div class="setup-step hidden" data-step="2">
+      <h3>Pair your GoDice</h3>
+      <p class="muted">Pair two dice as your <strong>production pair</strong> (one red, one yellow is traditional). You can also pair extras and use them later. Each die opens its own browser pairing dialog.</p>
+
+      <div id="ble-status" class="ble-status"></div>
+
+      <div id="dice-list" class="dice-list"></div>
+
+      <div class="row">
+        <button class="btn primary" data-action="pair-die">+ Pair a die</button>
+        <button class="btn ghost" data-action="manual-mode" id="manual-mode-btn">Skip — manual entry</button>
+      </div>
+
+      <details class="card subtle">
+        <summary>Don't have GoDice handy? (manual entry)</summary>
+        <p class="muted">Tap the big dice in-game to enter rolls manually. Useful on iPad, or to test the app without your dice nearby.</p>
+      </details>
+
+      <div class="row right">
+        <button class="btn ghost" data-action="step-prev">&larr; Back</button>
+        <button class="btn primary" data-action="step-next" id="to-step-3">Next: assign roles &rarr;</button>
+      </div>
+    </div>
+
+    <!-- Step 3: Roles -->
+    <div class="setup-step hidden" data-step="3">
+      <h3>Assign dice roles</h3>
+      <p class="muted">Pick which two dice produce resources. Any extras can sit on the table.</p>
+      <div id="role-assign" class="role-assign"></div>
+
+      <div class="row right">
+        <button class="btn ghost" data-action="step-prev">&larr; Back</button>
+        <button class="btn primary big" data-action="start-game">Start game &rarr;</button>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- GAME SCREEN                                                   -->
+<!-- ============================================================ -->
+<section class="screen hidden" data-screen="game">
+  <header class="topbar game-topbar">
+    <div class="game-clock">
+      <span class="muted">Game</span>
+      <span id="game-clock" class="mono">00:00</span>
+    </div>
+    <div class="topbar-center">
+      <span class="muted" id="turn-counter">Turn 1</span>
+    </div>
+    <div class="topbar-right">
+      <button class="btn ghost icon" data-action="open-aids" title="Player aids">📖</button>
+      <button class="btn ghost icon" data-action="open-stats" title="Statistics">📊</button>
+      <button class="btn ghost icon" data-action="open-settings" title="Settings">⚙</button>
+      <button class="btn ghost icon" data-action="end-game" title="End game">⏹</button>
+    </div>
+  </header>
+
+  <main class="game-main">
+
+    <!-- LEFT: dice + roll history -->
+    <div class="dice-zone">
+      <div class="dice-display" id="dice-display">
+        <div class="die" data-die-slot="0">
+          <span class="die-face" id="die-face-0">?</span>
+          <span class="die-label" id="die-label-0">Die 1</span>
+        </div>
+        <div class="die" data-die-slot="1">
+          <span class="die-face" id="die-face-1">?</span>
+          <span class="die-label" id="die-label-1">Die 2</span>
+        </div>
+      </div>
+      <div class="roll-sum">
+        <span class="muted">Sum</span>
+        <span id="roll-sum" class="sum-num">—</span>
+      </div>
+      <div class="prod-hint" id="prod-hint">Roll to begin</div>
+
+      <div class="roll-log-wrap">
+        <div class="section-header">
+          <h3>Roll log</h3>
+          <button class="btn tiny ghost" data-action="clear-log">Clear</button>
+        </div>
+        <ol id="roll-log" class="roll-log"></ol>
+      </div>
+    </div>
+
+    <!-- RIGHT: active player + actions -->
+    <aside class="turn-zone">
+      <div class="active-player-card" id="active-player-card">
+        <div class="player-color-tag" id="active-color"></div>
+        <div class="active-player-name" id="active-name">Player</div>
+        <div class="turn-timer-block">
+          <span class="muted">Turn time</span>
+          <span id="turn-clock" class="mono big">00:00</span>
+        </div>
+      </div>
+
+      <div class="action-stack">
+        <button class="btn primary huge" data-action="end-turn" id="end-turn-btn">End turn</button>
+        <button class="btn warn huge hidden" data-action="open-sbp" id="sbp-btn">Special Build Phase</button>
+        <button class="btn ghost" data-action="open-discard">7 rolled — discard helper</button>
+      </div>
+
+      <div class="all-players">
+        <h3>Players</h3>
+        <ul id="players-mini-list"></ul>
+      </div>
+    </aside>
+
+  </main>
+</section>
+
+<!-- ============================================================ -->
+<!-- OVERLAYS                                                      -->
+<!-- ============================================================ -->
+
+<!-- Settings drawer -->
+<div class="overlay hidden" data-overlay="settings">
+  <div class="drawer">
+    <header><h2>Settings</h2><button class="btn ghost icon" data-action="close-overlay">✕</button></header>
+    <div class="drawer-body">
+      <fieldset class="rule-toggles" id="settings-rules"></fieldset>
+      <h3>Dice</h3>
+      <div id="settings-dice"></div>
+      <h3>Game</h3>
+      <div class="row">
+        <button class="btn" data-action="reset-stats">Reset stats only</button>
+        <button class="btn warn" data-action="end-game">End game</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Stats overlay -->
+<div class="overlay hidden" data-overlay="stats">
+  <div class="drawer wide">
+    <header><h2>Roll statistics</h2><button class="btn ghost icon" data-action="close-overlay">✕</button></header>
+    <div class="drawer-body">
+      <p class="muted"><span id="stats-total">0</span> rolls this game.</p>
+      <div id="stats-chart" class="stats-chart"></div>
+      <h3>Per-player rolls</h3>
+      <div id="stats-by-player"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Player aids overlay -->
+<div class="overlay hidden" data-overlay="aids">
+  <div class="drawer wide">
+    <header><h2>Player aids</h2><button class="btn ghost icon" data-action="close-overlay">✕</button></header>
+    <div class="drawer-body">
+      <div class="aids-grid">
+        <div class="aid-card">
+          <h3>Building costs</h3>
+          <table class="cost-table">
+            <tr><th>Road</th><td>🌲 Wood + 🧱 Brick</td></tr>
+            <tr><th>Settlement</th><td>🌲 + 🧱 + 🌾 Wheat + 🐑 Sheep</td></tr>
+            <tr><th>City</th><td>3× ⛰ Ore + 2× 🌾 Wheat</td></tr>
+            <tr><th>Dev card</th><td>⛰ + 🌾 + 🐑</td></tr>
+          </table>
+        </div>
+        <div class="aid-card">
+          <h3>Development cards (25 total)</h3>
+          <ul class="aid-list">
+            <li><strong>Knight</strong> ×14 — move robber, steal a card</li>
+            <li><strong>Victory Point</strong> ×5 — +1 VP (kept hidden)</li>
+            <li><strong>Road Building</strong> ×2 — build 2 roads free</li>
+            <li><strong>Year of Plenty</strong> ×2 — take any 2 resources from bank</li>
+            <li><strong>Monopoly</strong> ×2 — name a resource, all players give you all of it</li>
+          </ul>
+        </div>
+        <div class="aid-card">
+          <h3>Trade rates</h3>
+          <ul class="aid-list">
+            <li>Bank: <strong>4 : 1</strong> any resource</li>
+            <li>Generic port: <strong>3 : 1</strong> any resource</li>
+            <li>Specific port: <strong>2 : 1</strong> that resource</li>
+          </ul>
+        </div>
+        <div class="aid-card">
+          <h3>Special VP cards</h3>
+          <ul class="aid-list">
+            <li><strong>Longest Road</strong> — first to 5+ continuous roads. +2 VP. Stealable.</li>
+            <li><strong>Largest Army</strong> — first to play 3+ Knights. +2 VP. Stealable.</li>
+          </ul>
+          <div class="row">
+            <div>
+              <label class="muted">Longest Road</label>
+              <select id="longest-road-select"></select>
+            </div>
+            <div>
+              <label class="muted">Largest Army</label>
+              <select id="largest-army-select"></select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <h3>Victory points</h3>
+      <div id="vp-grid" class="vp-grid"></div>
+      <p class="muted small">VP from settlements/cities/longest road/largest army/dev cards. First to 10 wins.</p>
+    </div>
+  </div>
+</div>
+
+<!-- Discard / Robber modal -->
+<div class="overlay hidden" data-overlay="discard">
+  <div class="drawer">
+    <header><h2>🚨 7 rolled — robber active</h2><button class="btn ghost icon" data-action="close-overlay">✕</button></header>
+    <div class="drawer-body">
+      <p class="muted">Players holding more than 7 cards must discard half (round down). Tap each player's card count.</p>
+      <div id="discard-list"></div>
+      <div class="row right">
+        <button class="btn primary" data-action="confirm-robber">Robber moved — continue</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Special Build Phase modal -->
+<div class="overlay hidden" data-overlay="sbp">
+  <div class="drawer">
+    <header><h2>Special Build Phase</h2><button class="btn ghost icon" data-action="close-overlay">✕</button></header>
+    <div class="drawer-body">
+      <p class="muted">5–6 player rule: between turns, every player except the active one may build (no dev card play, no trades except with bank/ports).</p>
+      <p class="muted">Tap done when everyone's finished.</p>
+      <div class="row right">
+        <button class="btn primary big" data-action="finish-sbp">Done — start next turn</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast container -->
+<div id="toasts" class="toasts"></div>
+
+<!-- ============================================================ -->
+<!-- SCRIPTS                                                       -->
+<!-- ============================================================ -->
+<!-- godice.js loaded from jsDelivr's GitHub mirror; falls back gracefully if blocked. -->
+<script src="https://cdn.jsdelivr.net/gh/ParticulaCode/GoDiceJavaScriptAPI@main/godice.js"
+        onerror="window.__GODICE_LOAD_FAILED__=true"></script>
+<script src="godice-adapter.js"></script>
+<script src="app.js"></script>
+<script>
+  // PWA service worker registration (fail silent if file:// or no SW support)
+  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+    navigator.serviceWorker.register('sw.js').catch(()=>{});
+  }
+</script>
+</body>
+</html>
